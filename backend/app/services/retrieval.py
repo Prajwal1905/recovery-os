@@ -1,18 +1,3 @@
-"""
-Precedent retrieval service for Recovery OS.
-
-Given a failure (new or existing), builds the same style of text
-description used when seeding precedents, embeds it with the same local
-model, and retrieves the top-k most similar past cases by cosine
-similarity - computed in Python/numpy since we're storing embeddings as
-JSONB rather than using pgvector (see project notes on Windows pgvector
-install friction).
-
-Usage:
-    from app.services.retrieval import PrecedentRetriever
-    retriever = PrecedentRetriever()
-    results = retriever.retrieve_similar(failure, merchant, top_k=3)
-"""
 
 import sys
 import os
