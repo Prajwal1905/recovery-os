@@ -1,0 +1,115 @@
+{
+  "test_size": 240,
+  "train_size": 960,
+  "per_class_metrics": {
+    "bank_timeout": {
+      "precision": 0.94,
+      "recall": 0.9215686274509803,
+      "f1": 0.9306930693069307,
+      "support": 51
+    },
+    "expired_card": {
+      "precision": 0.918918918918919,
+      "recall": 0.918918918918919,
+      "f1": 0.918918918918919,
+      "support": 37
+    },
+    "insufficient_funds": {
+      "precision": 0.8873239436619719,
+      "recall": 0.9264705882352942,
+      "f1": 0.9064748201438849,
+      "support": 68
+    },
+    "mandate_failure": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 41
+    },
+    "risk_decline": {
+      "precision": 0.8536585365853658,
+      "recall": 0.813953488372093,
+      "f1": 0.8333333333333334,
+      "support": 43
+    }
+  },
+  "confusion_matrix": {
+    "bank_timeout": {
+      "bank_timeout": 47,
+      "expired_card": 0,
+      "insufficient_funds": 2,
+      "mandate_failure": 0,
+      "risk_decline": 1
+    },
+    "expired_card": {
+      "bank_timeout": 0,
+      "expired_card": 34,
+      "insufficient_funds": 0,
+      "mandate_failure": 0,
+      "risk_decline": 3
+    },
+    "insufficient_funds": {
+      "bank_timeout": 4,
+      "expired_card": 0,
+      "insufficient_funds": 63,
+      "mandate_failure": 0,
+      "risk_decline": 4
+    },
+    "mandate_failure": {
+      "bank_timeout": 0,
+      "expired_card": 0,
+      "insufficient_funds": 0,
+      "mandate_failure": 41,
+      "risk_decline": 0
+    },
+    "risk_decline": {
+      "bank_timeout": 0,
+      "expired_card": 3,
+      "insufficient_funds": 3,
+      "mandate_failure": 0,
+      "risk_decline": 35
+    }
+  },
+  "top_features": [
+    {
+      "feature": "cat__payment_method_emandate",
+      "mean_abs_shap": 0.9146245121955872
+    },
+    {
+      "feature": "cat__payment_method_card",
+      "mean_abs_shap": 0.8622944355010986
+    },
+    {
+      "feature": "num__amount",
+      "mean_abs_shap": 0.5581288933753967
+    },
+    {
+      "feature": "cat__payment_method_netbanking",
+      "mean_abs_shap": 0.28665661811828613
+    },
+    {
+      "feature": "cat__razorpay_error_reason_insufficient_balance_in_account",
+      "mean_abs_shap": 0.2842375338077545
+    },
+    {
+      "feature": "cat__razorpay_error_reason_insufficient_funds",
+      "mean_abs_shap": 0.24356050789356232
+    },
+    {
+      "feature": "cat__razorpay_error_reason_card_expired",
+      "mean_abs_shap": 0.1248348131775856
+    },
+    {
+      "feature": "cat__razorpay_error_reason_expired_card",
+      "mean_abs_shap": 0.10761206597089767
+    },
+    {
+      "feature": "cat__razorpay_error_code_BAD_REQUEST_ERROR",
+      "mean_abs_shap": 0.10734516382217407
+    },
+    {
+      "feature": "cat__razorpay_error_reason_issuer_timeout",
+      "mean_abs_shap": 0.0968983992934227
+    }
+  ]
+}

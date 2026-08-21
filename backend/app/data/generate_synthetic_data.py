@@ -1,3 +1,14 @@
+"""
+Synthetic data generator for Recovery OS.
+
+Generates:
+- 3 merchants (one per persona)
+- 1200 payment failures distributed across personas with realistic,
+  persona-correlated patterns using real Razorpay error/reason codes.
+
+Run from backend/ with:
+    python -m app.data.generate_synthetic_data
+"""
 
 import random
 import sys
@@ -36,6 +47,16 @@ ERROR_CODE_MAP = {
     ],
 }
 
+AMBIGUOUS_REASONS = [
+    ("GATEWAY_ERROR", "payment_failed"),
+    ("SERVER_ERROR", "unknown_error"),
+    ("GATEWAY_ERROR", "transaction_declined"),
+    ("BAD_REQUEST_ERROR", "authentication_failed"),
+]
+
+
+AMBIGUOUS_REASON_RATE = 0.18
+
 PAYMENT_METHODS_BY_CLASS = {
     FailureClass.insufficient_funds: ["upi", "card", "netbanking"],
     FailureClass.expired_card: ["card"],
@@ -44,10 +65,6 @@ PAYMENT_METHODS_BY_CLASS = {
     FailureClass.mandate_failure: ["emandate"],
 }
 
-# ---------------------------------------------------------------------------
-# Persona definitions: how each merchant's failure distribution looks.
-# Weights don't need to sum to 1 - we normalize.
-# ---------------------------------------------------------------------------
 PERSONA_CONFIG = {
     MerchantPersona.aggressive_d2c: {
         "name": "UrbanCart D2C",
@@ -113,7 +130,7 @@ def generate_customer_id(persona: MerchantPersona, idx: int) -> str:
         MerchantPersona.relationship_b2b: "cust_b2b",
         MerchantPersona.neutral_midmarket: "cust_mm",
     }[persona]
-    # reuse customer ids sometimes to simulate repeat failures from same customer
+    
     pool_size = max(10, idx // 3)
     return f"{prefix}_{random.randint(1, pool_size):05d}"
 
@@ -142,7 +159,12 @@ def generate_failures_for_merchant(db, merchant: Merchant, persona: MerchantPers
     failures = []
     for i in range(cfg["n_failures"]):
         failure_class = weighted_choice(cfg["class_weights"])
-        code, reason = random.choice(ERROR_CODE_MAP[failure_class])
+
+        if random.random() < AMBIGUOUS_REASON_RATE:
+            code, reason = random.choice(AMBIGUOUS_REASONS)
+        else:
+            code, reason = random.choice(ERROR_CODE_MAP[failure_class])
+
         payment_method = random.choice(PAYMENT_METHODS_BY_CLASS[failure_class])
         amount = round(random.uniform(*cfg["amount_range"]), 2)
         attempt_count = random.randint(*cfg["attempt_count_range"])
@@ -185,7 +207,6 @@ def main():
 
         print(f"\nDone. Total failures generated: {total}")
 
-        # quick sanity summary
         print("\nClass distribution per persona:")
         for persona, cfg in PERSONA_CONFIG.items():
             merchant = merchants[persona]
