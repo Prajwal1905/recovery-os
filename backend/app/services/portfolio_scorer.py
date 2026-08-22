@@ -7,8 +7,6 @@ sys.path.append(os.getcwd())
 from app.models.models import Failure, Merchant, ActionType
 from app.services.retrieval import PrecedentRetriever
 
-# Base "cost" per action if it's taken - rough proxy for support bandwidth /
-# message quota / customer goodwill spent. Tunable per merchant later.
 ACTION_ANNOYANCE_COST = {
     ActionType.retry_now: 5,
     ActionType.retry_scheduled: 8,
@@ -16,12 +14,10 @@ ACTION_ANNOYANCE_COST = {
     ActionType.mandate_reauth: 20,
     ActionType.whatsapp_nudge: 25,
     ActionType.hinglish_voice_call: 60,
-    ActionType.escalate_human: 150,   # real human time is the most expensive resource
+    ActionType.escalate_human: 150,   
     ActionType.stop_chasing: 0,
 }
 
-# Marginal annoyance multiplier per prior attempt already made on this
-# failure - chasing someone for the 4th time costs more goodwill than the 1st.
 ATTEMPT_ANNOYANCE_MULTIPLIER = 0.15
 
 
@@ -30,17 +26,12 @@ class PortfolioScorer:
         self.retriever = retriever or PrecedentRetriever()
 
     def estimate_probability(self, failure: Failure, merchant: Merchant, top_k: int = 5) -> tuple:
-        """
-        Returns (probability_of_success, retrieved_precedents).
-        Probability = recovered_count / attempted_count among top-k similar
-        precedents (excludes not_attempted/stop_chasing cases from the
-        denominator, since those tell us nothing about recovery odds).
-        """
+        
         precedents = self.retriever.retrieve_similar(failure, merchant, top_k=top_k)
         attempted = [p for p in precedents if p["outcome"] != "not_attempted"]
 
         if not attempted:
-            # no grounded signal at all - use a conservative neutral prior
+            
             return 0.3, precedents
 
         recovered = [p for p in attempted if p["outcome"] == "recovered"]
@@ -53,15 +44,7 @@ class PortfolioScorer:
         return base + attempt_penalty
 
     def guess_likely_action(self, precedents: list) -> ActionType:
-        """
-        Before the full LLM reasoning call, use the most common *actionable*
-        (non stop_chasing) action among retrieved precedents as a cheap
-        proxy for annoyance-cost estimation during scoring. Precedents where
-        the historical policy chose not to attempt recovery are excluded
-        here, since this estimate specifically answers "what would it cost
-        to chase this" - the chase/stop decision itself is made separately
-        by priority_score and capacity, not by this label.
-        """
+        
         actionable = [p for p in precedents if p["action_taken"] != ActionType.stop_chasing.value]
         if not actionable:
             return ActionType.escalate_human
@@ -89,16 +72,7 @@ class PortfolioScorer:
         }
 
     def score_batch(self, failures: list, merchant_lookup: dict, chase_capacity: int = None) -> list:
-        """
-        merchant_lookup: dict mapping merchant_id -> Merchant object
-        chase_capacity: max number of failures to actively chase; if None,
-                        capacity is unlimited and only the cost-vs-value
-                        cutoff (priority_score <= 0) determines stopping.
-
-        Returns list of scored dicts, sorted by priority_score descending,
-        each annotated with a final "decision" of "chase" or "stop_chasing"
-        and a plain-language "stop_reason" when stopped.
-        """
+        
         scored = []
         for failure in failures:
             merchant = merchant_lookup[failure.merchant_id]
@@ -107,14 +81,22 @@ class PortfolioScorer:
 
         scored.sort(key=lambda r: r["priority_score"], reverse=True)
 
+        failure_by_id = {str(f.id): f for f in failures}
+
         for rank, result in enumerate(scored, start=1):
             result["rank"] = rank
+            failure = failure_by_id[result["failure_id"]]
+            merchant = merchant_lookup[failure.merchant_id]
 
-            if result["priority_score"] <= 0:
+            stop_threshold = merchant.stopping_aggressiveness * result["expected_recovery_value"]
+
+            if result["priority_score"] <= stop_threshold:
                 result["decision"] = "stop_chasing"
                 result["stop_reason"] = (
-                    f"Negative expected value: expected recovery INR {result['expected_recovery_value']:.2f} "
-                    f"does not cover estimated cost INR {result['annoyance_cost']:.2f}."
+                    f"Below merchant's stopping threshold: priority score {result['priority_score']:.2f} "
+                    f"doesn't clear this merchant's required margin of INR {stop_threshold:.2f} "
+                    f"({merchant.stopping_aggressiveness*100:.0f}% of expected recovery, "
+                    f"stopping_aggressiveness={merchant.stopping_aggressiveness})."
                 )
             elif chase_capacity is not None and rank > chase_capacity:
                 result["decision"] = "stop_chasing"
@@ -137,7 +119,7 @@ def _demo():
     db = SessionLocal()
     try:
         merchants = {m.id: m for m in db.query(Merchant).all()}
-        # sample a modest batch for a readable demo
+       
         failures = db.query(Failure).filter(Failure.failure_class.isnot(None)).limit(20).all()
 
         scorer = PortfolioScorer()
