@@ -143,3 +143,55 @@ class Precedent(Base):
     recovered_amount = Column(Float, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class MerchantBanditState(Base):
+    
+    __tablename__ = "merchant_bandit_state"
+ 
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    merchant_id = Column(UUID(as_uuid=True), ForeignKey("merchants.id"), nullable=False, unique=True)
+ 
+    
+    arms = Column(JSONB, nullable=False, default=lambda: [0.1, 0.3, 0.5, 0.7, 0.9])
+ 
+    a_matrices = Column(JSONB, nullable=False)
+    b_vectors = Column(JSONB, nullable=False)
+ 
+    
+    total_batches_run = Column(Integer, default=0)
+    current_best_arm_index = Column(Integer, default=2)  
+ 
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+ 
+    merchant = relationship("Merchant")
+ 
+ 
+class BatchRunHistory(Base):
+    
+    __tablename__ = "batch_run_history"
+ 
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    merchant_id = Column(UUID(as_uuid=True), ForeignKey("merchants.id"), nullable=False)
+ 
+    batch_size = Column(Integer, nullable=False)
+    chase_capacity = Column(Integer, nullable=True)
+ 
+    
+    aggressiveness_used = Column(Float, nullable=False)
+    arm_index_used = Column(Integer, nullable=False)
+ 
+    context_features = Column(JSONB, nullable=True)
+ 
+    total_batch_value = Column(Float, nullable=False)
+    total_expected_recovery = Column(Float, nullable=False)
+    total_simulated_recovered = Column(Float, nullable=False)
+    total_annoyance_cost = Column(Float, nullable=False)
+    reward = Column(Float, nullable=False)  # normalized ROI used to update the bandit
+ 
+    chased_count = Column(Integer, nullable=False)
+    stopped_count = Column(Integer, nullable=False)
+ 
+    created_at = Column(DateTime, default=datetime.utcnow)
+ 
+    merchant = relationship("Merchant")
+ 
