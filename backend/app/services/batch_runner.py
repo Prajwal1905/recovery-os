@@ -176,7 +176,6 @@ class BatchRunner:
 
 def main():
     persona_filter = sys.argv[1] if len(sys.argv) > 1 else None
-    
     chase_capacity_arg = sys.argv[2] if len(sys.argv) > 2 else None
     chase_capacity = int(chase_capacity_arg) if chase_capacity_arg else None
 

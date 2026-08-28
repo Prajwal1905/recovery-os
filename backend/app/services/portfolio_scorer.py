@@ -25,9 +25,8 @@ class PortfolioScorer:
     def __init__(self, retriever: PrecedentRetriever = None):
         self.retriever = retriever or PrecedentRetriever()
 
-    def estimate_probability(self, failure: Failure, merchant: Merchant, top_k: int = 5) -> tuple:
-        
-        precedents = self.retriever.retrieve_similar(failure, merchant, top_k=top_k)
+    def estimate_probability(self, failure: Failure, merchant: Merchant, top_k: int = 15) -> tuple:
+        precedents = self.retriever.retrieve_similar(failure, merchant, top_k=top_k, filter_same_persona=True)
         attempted = [p for p in precedents if p["outcome"] != "not_attempted"]
 
         if not attempted:
@@ -88,15 +87,15 @@ class PortfolioScorer:
             failure = failure_by_id[result["failure_id"]]
             merchant = merchant_lookup[failure.merchant_id]
 
-            stop_threshold = merchant.stopping_aggressiveness * result["expected_recovery_value"]
+            min_probability_required = merchant.stopping_aggressiveness * 0.9 
 
-            if result["priority_score"] <= stop_threshold:
+            if result["probability_of_success"] < min_probability_required:
                 result["decision"] = "stop_chasing"
                 result["stop_reason"] = (
-                    f"Below merchant's stopping threshold: priority score {result['priority_score']:.2f} "
-                    f"doesn't clear this merchant's required margin of INR {stop_threshold:.2f} "
-                    f"({merchant.stopping_aggressiveness*100:.0f}% of expected recovery, "
-                    f"stopping_aggressiveness={merchant.stopping_aggressiveness})."
+                    f"Below merchant's confidence threshold: recovery probability "
+                    f"{result['probability_of_success']*100:.1f}% doesn't clear this merchant's "
+                    f"required minimum of {min_probability_required*100:.1f}% "
+                    f"(stopping_aggressiveness={merchant.stopping_aggressiveness})."
                 )
             elif chase_capacity is not None and rank > chase_capacity:
                 result["decision"] = "stop_chasing"
@@ -137,7 +136,6 @@ def _demo():
               f"Total expected recovery: INR {total_expected_recovery:.2f}")
     finally:
         db.close()
-
 
 if __name__ == "__main__":
     _demo()

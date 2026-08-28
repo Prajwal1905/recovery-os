@@ -53,7 +53,7 @@ class PrecedentRetriever:
         db = self._get_db()
         owns_session = self._db is None
         try:
-            query = db.query(Precedent)
+            query = db.query(Precedent).filter(Precedent.failure_class == failure.failure_class)
             if filter_same_persona:
                 query = query.filter(Precedent.merchant_persona == merchant.persona)
 
