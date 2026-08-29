@@ -66,7 +66,7 @@ class BatchRunner:
             exec_result = self.executor.execute(failure, decision)
 
             simulated_recovered = None
-            if exec_result.get("api_call") and exec_result.get("executed"):
+            if exec_result.get("executed") and exec_result.get("final_action") != "stop_chasing":
                 recovered = self._simulate_customer_outcome(r["probability_of_success"])
                 simulated_recovered = round(failure.amount, 2) if recovered else 0.0
 
