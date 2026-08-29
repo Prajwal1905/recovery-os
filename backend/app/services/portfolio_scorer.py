@@ -37,11 +37,18 @@ class PortfolioScorer:
         probability = len(recovered) / len(attempted)
         return probability, precedents
 
-    def estimate_annoyance_cost(self, failure: Failure, likely_action: ActionType) -> float:
+    PERSONA_ANNOYANCE_MULTIPLIER = {
+        "aggressive_d2c": 1.0,
+        "neutral_midmarket": 2.5,
+        "relationship_b2b": 6.0,
+    }
+
+    def estimate_annoyance_cost(self, failure: Failure, likely_action: ActionType, merchant: Merchant) -> float:
         base = ACTION_ANNOYANCE_COST.get(likely_action, 20)
         attempt_penalty = base * ATTEMPT_ANNOYANCE_MULTIPLIER * max(0, failure.attempt_count - 1)
-        return base + attempt_penalty
-
+        multiplier = self.PERSONA_ANNOYANCE_MULTIPLIER.get(merchant.persona.value, 1.0)
+        return (base + attempt_penalty) * multiplier
+    
     def guess_likely_action(self, precedents: list) -> ActionType:
         
         actionable = [p for p in precedents if p["action_taken"] != ActionType.stop_chasing.value]
@@ -54,7 +61,7 @@ class PortfolioScorer:
     def score_failure(self, failure: Failure, merchant: Merchant) -> dict:
         probability, precedents = self.estimate_probability(failure, merchant)
         likely_action = self.guess_likely_action(precedents)
-        annoyance_cost = self.estimate_annoyance_cost(failure, likely_action)
+        annoyance_cost = self.estimate_annoyance_cost(failure, likely_action, merchant)
 
         expected_recovery_value = failure.amount * probability
         priority_score = expected_recovery_value - annoyance_cost
