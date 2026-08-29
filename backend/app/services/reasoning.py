@@ -1,4 +1,3 @@
-
 import sys
 import os
 import json
@@ -7,6 +6,7 @@ sys.path.append(os.getcwd())
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from app.models.models import Failure, Merchant, ActionType
 
@@ -72,25 +72,33 @@ Recommend the single best action and explain your reasoning with ROI justificati
             "explanation": f"Fallback to human escalation: {reason}",
         }
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+        retry=retry_if_exception_type(Exception),
+        reraise=True,
+    )
+    def _call_openai(self, user_prompt: str):
+        response = self.client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        )
+        return response.choices[0].message.content
+
     def decide(self, failure: Failure, merchant: Merchant, precedents: list) -> dict:
         user_prompt = self._build_user_prompt(failure, merchant, precedents)
 
         try:
-            response = self.client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.2,
-                response_format={"type": "json_object"},
-            )
-            raw = response.choices[0].message.content
+            raw = self._call_openai(user_prompt)
             parsed = json.loads(raw)
         except Exception as e:
-            return self._fallback_decision(f"LLM call or parsing failed ({e})")
+            return self._fallback_decision(f"LLM call or parsing failed after retries ({e})")
 
-        
         action = parsed.get("action")
         if action not in ALLOWED_ACTIONS:
             return self._fallback_decision(f"LLM returned invalid action '{action}', rejected")
