@@ -5,7 +5,7 @@ import json
 
 sys.path.append(os.getcwd())
 
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from app.database import SessionLocal, get_db
 from app.models.models import Failure, Merchant, AuditLog, ActionTaken, FailureStatus, BatchRunHistory
 from app.services.batch_runner import BatchRunner
-
+from sqlalchemy import func
 app = FastAPI(title="Recovery OS API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -24,6 +24,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+API_KEY = os.getenv("RECOVERY_OS_API_KEY")
+if not API_KEY:
+    raise RuntimeError("RECOVERY_OS_API_KEY not set in .env")
+
+def verify_api_key(x_api_key: str = Header(...)):
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
 class MerchantOut(BaseModel):
     id: str
     name: str
@@ -104,7 +113,7 @@ def list_failures(
     ]
 
 
-@app.get("/failures/{failure_id}/audit")
+@app.get("/failures/{failure_id}/audit", dependencies=[Depends(verify_api_key)])
 def get_failure_audit(failure_id: str, db: Session = Depends(get_db)):
     failure = db.query(Failure).filter(Failure.id == failure_id).first()
     if not failure:
@@ -144,7 +153,7 @@ def get_failure_audit(failure_id: str, db: Session = Depends(get_db)):
     }
 
 
-@app.post("/batch/run")
+@app.post("/batch/run", dependencies=[Depends(verify_api_key)])
 def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
     merchant_lookup = {m.id: m for m in db.query(Merchant).all()}
 
@@ -153,7 +162,7 @@ def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
         merchant_ids = [m.id for m in merchant_lookup.values() if m.persona.value == req.merchant_persona]
         query = query.filter(Failure.merchant_id.in_(merchant_ids))
 
-    failures = query.limit(req.batch_limit).all()
+    failures = query.order_by(func.random()).limit(req.batch_limit).all()
     if not failures:
         raise HTTPException(status_code=404, detail="No failures found matching the given filters")
 
@@ -172,7 +181,7 @@ def get_classifier_metrics():
     with open(metrics_path) as f:
         return json.load(f)
 
-@app.get("/merchants/{merchant_id}/learning-curve")
+@app.get("/merchants/{merchant_id}/learning-curve", dependencies=[Depends(verify_api_key)])
 def get_learning_curve(merchant_id: str, db: Session = Depends(get_db)):
     merchant = db.query(Merchant).filter(Merchant.id == merchant_id).first()
     if not merchant:
