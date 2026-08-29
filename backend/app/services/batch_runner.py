@@ -13,6 +13,8 @@ from app.services.reasoning import ReasoningEngine
 from app.services.portfolio_scorer import PortfolioScorer
 from app.services.executor import ActionExecutor
 from app.services.policy_bandit import PolicyBandit
+from app.models.models import Precedent
+from app.services.retrieval import get_embedding_model, build_query_text
 
 random.seed(11)
 
@@ -69,7 +71,9 @@ class BatchRunner:
             if exec_result.get("executed") and exec_result.get("final_action") != "stop_chasing":
                 recovered = self._simulate_customer_outcome(r["probability_of_success"])
                 simulated_recovered = round(failure.amount, 2) if recovered else 0.0
-
+                
+            outcome_label = "recovered" if simulated_recovered else "failed"
+            self._write_feedback_precedent(failure, merchant, decision, outcome_label, simulated_recovered)
             results.append({
                 **r,
                 "llm_action": decision["action"],
@@ -173,6 +177,28 @@ class BatchRunner:
 
         return {"summary": summary, "results": results}
 
+    def _write_feedback_precedent(self, failure, merchant, decision, outcome: str, recovered_amount):
+        case_summary = (
+            f"Merchant persona: {merchant.persona.value}. "
+            f"Failure class: {failure.failure_class.value}. "
+            f"Payment method: {failure.payment_method}. "
+            f"Error: {failure.razorpay_error_code} / {failure.razorpay_error_reason}. "
+            f"Amount: INR {failure.amount:.2f}. Attempt count: {failure.attempt_count}. "
+            f"Action taken: {decision['action']}. Outcome: {outcome}."
+        )
+        model = get_embedding_model()
+        embedding = model.encode([case_summary], convert_to_numpy=True)[0].tolist()
+
+        precedent = Precedent(
+            merchant_persona=merchant.persona,
+            failure_class=failure.failure_class,
+            case_summary=case_summary,
+            embedding=embedding,
+            action_taken=ActionType(decision["action"]),
+            outcome=outcome,
+            recovered_amount=recovered_amount,
+        )
+        self.db.add(precedent)
 
 def main():
     persona_filter = sys.argv[1] if len(sys.argv) > 1 else None
