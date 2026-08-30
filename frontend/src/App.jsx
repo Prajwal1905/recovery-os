@@ -5,6 +5,7 @@ import PolicyPanel from "./components/PolicyPanel";
 import RankedTable from "./components/RankedTable";
 import ExceptionList from "./components/ExceptionList";
 import DrillDownPanel from "./components/DrillDownPanel";
+import CapacitySlider from "./components/CapacitySlider";
 
 const API_BASE = "http://localhost:8000";
 
@@ -119,6 +120,7 @@ export default function App() {
             </div>
 
             <PolicyPanel policy={summary.policy} />
+            <CapacitySlider results={sortedResults} />
             <RankedTable
               results={sortedResults}
               onSelectFailure={setSelectedFailureId}
