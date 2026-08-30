@@ -7,4 +7,4 @@ node_modules/
 frontend/dist/
 frontend/.env
 .vscode/
-*.log
+*.logbackend/app/generated_audio/
