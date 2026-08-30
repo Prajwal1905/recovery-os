@@ -57,7 +57,7 @@ class Merchant(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     failures = relationship("Failure", back_populates="merchant")
-
+    api_key_hash = Column(String, nullable=True, unique=True)
 
 class Failure(Base):
     __tablename__ = "failures"

@@ -18,6 +18,7 @@ from app.services.classifier_inference import classify_failure
 from sqlalchemy import func
 import hmac
 import hashlib
+import secrets
 
 app = FastAPI(title="Recovery OS API", version="0.1.0")
 app.add_middleware(
@@ -29,14 +30,26 @@ app.add_middleware(
 )
 
 
-API_KEY = os.getenv("RECOVERY_OS_API_KEY")
-if not API_KEY:
+ADMIN_API_KEY = os.getenv("RECOVERY_OS_API_KEY")
+if not ADMIN_API_KEY:
     raise RuntimeError("RECOVERY_OS_API_KEY not set in .env")
 
-def verify_api_key(x_api_key: str = Header(...)):
-    if x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+
+def _hash_key(raw_key: str) -> str:
+    return hashlib.sha256(raw_key.encode()).hexdigest()
+
+
+def verify_api_key(x_api_key: str = Header(...), db: Session = Depends(get_db)):
     
+    if x_api_key == ADMIN_API_KEY:
+        return None  
+
+    key_hash = _hash_key(x_api_key)
+    merchant = db.query(Merchant).filter(Merchant.api_key_hash == key_hash).first()
+    if not merchant:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return merchant
+
 class MerchantOut(BaseModel):
     id: str
     name: str
@@ -69,12 +82,20 @@ class BatchRunRequest(BaseModel):
     batch_limit: int = 30
     chase_capacity: Optional[int] = None
 
+class MerchantSignupRequest(BaseModel):
+    name: str
+    persona: str  
+    initial_stopping_aggressiveness: Optional[float] = 0.5
+
+class MerchantSignupResponse(MerchantOut):
+    api_key: str
+
 @app.get("/")
 def root():
     return {"status": "ok", "service": "Recovery OS API"}
 
 
-@app.get("/merchants", response_model=list[MerchantOut])
+@app.get("/merchants", response_model=list[MerchantOut], dependencies=[Depends(verify_api_key)])
 def list_merchants(db: Session = Depends(get_db)):
     merchants = db.query(Merchant).all()
     return [
@@ -86,7 +107,7 @@ def list_merchants(db: Session = Depends(get_db)):
     ]
 
 
-@app.get("/failures", response_model=list[FailureOut])
+@app.get("/failures", response_model=list[FailureOut],dependencies=[Depends(verify_api_key)])
 def list_failures(
     merchant_persona: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
@@ -343,3 +364,42 @@ async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
         pass
 
     return {"status": "received", "failure_id": str(new_failure.id), "failure_class": new_failure.failure_class.value if new_failure.failure_class else None}
+
+@app.post("/merchants", response_model=MerchantSignupResponse, dependencies=[Depends(verify_api_key)])
+def create_merchant(req: MerchantSignupRequest, db: Session = Depends(get_db)):
+    from app.models.models import MerchantPersona
+
+    try:
+        persona_enum = MerchantPersona(req.persona)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid persona '{req.persona}'. Must be one of: {[p.value for p in MerchantPersona]}",
+        )
+
+    existing = db.query(Merchant).filter(Merchant.name == req.name).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Merchant '{req.name}' already exists")
+
+    if not (0.0 <= req.initial_stopping_aggressiveness <= 1.0):
+        raise HTTPException(status_code=400, detail="initial_stopping_aggressiveness must be between 0 and 1")
+
+    raw_api_key = f"rec_{secrets.token_urlsafe(32)}"
+
+    merchant = Merchant(
+        name=req.name,
+        persona=persona_enum,
+        stopping_aggressiveness=req.initial_stopping_aggressiveness,
+        api_key_hash=_hash_key(raw_api_key),
+    )
+    db.add(merchant)
+    db.commit()
+    db.refresh(merchant)
+
+    return MerchantSignupResponse(
+        id=str(merchant.id),
+        name=merchant.name,
+        persona=merchant.persona.value,
+        stopping_aggressiveness=merchant.stopping_aggressiveness,
+        api_key=raw_api_key,
+    )
