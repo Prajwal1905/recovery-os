@@ -27,10 +27,14 @@ class PortfolioScorer:
 
     def estimate_probability(self, failure: Failure, merchant: Merchant, top_k: int = 15) -> tuple:
         precedents = self.retriever.retrieve_similar(failure, merchant, top_k=top_k, filter_same_persona=True)
+
+        if not precedents:
+        
+            return 0.3, [{"case_summary": "COLD START: no precedent history exists for this merchant persona yet.", "outcome": "no_data", "action_taken": "n/a", "similarity": 0.0, "recovered_amount": None}]
+
         attempted = [p for p in precedents if p["outcome"] != "not_attempted"]
 
         if not attempted:
-            
             return 0.3, precedents
 
         recovered = [p for p in attempted if p["outcome"] == "recovered"]
