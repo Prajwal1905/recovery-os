@@ -1,24 +1,3 @@
-"""
-State machine executor for Recovery OS.
-
-Takes a decision (action + explanation, from portfolio scoring + LLM
-reasoning) for a single failure and executes it:
-- For actions that map to a real Razorpay test-mode API call (retry,
-  payment link generation), makes the actual call - not mocked.
-- For actions that don't need an external call (nudge, escalate, stop),
-  just records the decision.
-- Enforces final stopping rules (max attempts, cooldown, do-not-disturb
-  hours) as a last line of defense even if upstream scoring said "chase".
-- Writes an immutable audit_log entry for every step: decision received,
-  stopping-rule check, API call + response (or skip reason), and final
-  status update on the Failure row.
-
-Usage:
-    from app.services.executor import ActionExecutor
-    executor = ActionExecutor()
-    result = executor.execute(failure, decision)
-"""
-
 import sys
 import os
 from datetime import datetime, time
@@ -28,6 +7,7 @@ sys.path.append(os.getcwd())
 from dotenv import load_dotenv
 import razorpay
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from app.services.voice_service import generate_hinglish_voice_message
 from app.database import SessionLocal
 from app.models.models import (
     Failure, ActionTaken, AuditLog, ActionType, FailureStatus
@@ -240,9 +220,26 @@ class ActionExecutor:
                 }
 
             # ---- non-API actions that still require logging (escalate, nudge, etc.) ----
+            extra_note = "Non-API action recorded (would trigger external workflow e.g. WhatsApp/human queue in production)."
+            audio_path = None
+
+            if action == ActionType.hinglish_voice_call:
+                try:
+                    from app.models.models import Merchant
+                    merchant = db.query(Merchant).filter(Merchant.id == failure.merchant_id).first()
+                    audio_path = generate_hinglish_voice_message(
+                        failure_id=str(failure.id),
+                        amount=failure.amount,
+                        merchant_name=merchant.name if merchant else "your merchant",
+                    )
+                    extra_note = f"Real Hinglish voice message generated via Sarvam AI: {audio_path}"
+                except Exception as e:
+                    extra_note = f"Voice generation attempted but failed: {e}. Would retry or fall back to text nudge in production."
+
             self._log_audit(db, failure.id, "executed", {
                 "action": action.value,
-                "note": "Non-API action recorded (would trigger external workflow e.g. WhatsApp/human queue in production).",
+                "note": extra_note,
+                "audio_path": audio_path,
             })
             failure.status = FailureStatus.action_executed
             db.add(failure)
