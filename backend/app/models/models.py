@@ -23,7 +23,7 @@ class FailureClass(str, enum.Enum):
     bank_timeout = "bank_timeout"
     risk_decline = "risk_decline"
     mandate_failure = "mandate_failure"
-
+    checkout_abandonment = "checkout_abandonment"
 
 class ActionType(str, enum.Enum):
     retry_now = "retry_now"
