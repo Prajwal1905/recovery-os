@@ -54,10 +54,13 @@ class PortfolioScorer:
         return (base + attempt_penalty) * multiplier
     
     def guess_likely_action(self, precedents: list) -> ActionType:
-        
-        actionable = [p for p in precedents if p["action_taken"] != ActionType.stop_chasing.value]
+        valid_actions = {a.value for a in ActionType}
+        actionable = [
+           p for p in precedents
+           if p["action_taken"] in valid_actions and p["action_taken"] != ActionType.stop_chasing.value
+        ]
         if not actionable:
-            return ActionType.escalate_human
+           return ActionType.escalate_human
         action_values = [p["action_taken"] for p in actionable]
         most_common = max(set(action_values), key=action_values.count)
         return ActionType(most_common)
