@@ -5,7 +5,7 @@ import json
 
 sys.path.append(os.getcwd())
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Header
+from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -14,7 +14,11 @@ from pydantic import BaseModel
 from app.database import SessionLocal, get_db
 from app.models.models import Failure, Merchant, AuditLog, ActionTaken, FailureStatus, BatchRunHistory
 from app.services.batch_runner import BatchRunner
+from app.services.classifier_inference import classify_failure
 from sqlalchemy import func
+import hmac
+import hashlib
+
 app = FastAPI(title="Recovery OS API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -285,3 +289,57 @@ def get_learning_curve(merchant_id: str, db: Session = Depends(get_db)):
         "current_best_aggressiveness": max(arm_summary, key=lambda a: a["avg_reward"])["aggressiveness"]
         if arm_summary else None,
     }
+
+@app.post("/webhooks/razorpay")
+async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
+    webhook_secret = os.getenv("RAZORPAY_WEBHOOK_SECRET")
+    if not webhook_secret:
+        raise HTTPException(status_code=500, detail="Webhook secret not configured")
+
+    raw_body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature", "")
+
+    expected_signature = hmac.new(
+        webhook_secret.encode(), raw_body, hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected_signature, signature):
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    payload = json.loads(raw_body)
+    event = payload.get("event")
+
+    if event != "payment.failed":
+        return {"status": "ignored", "reason": f"event '{event}' not handled"}
+
+    entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+
+    merchant = db.query(Merchant).first()  # placeholder until real multi-tenant mapping exists
+    if not merchant:
+        raise HTTPException(status_code=500, detail="No merchant configured to attach this failure to")
+
+    new_failure = Failure(
+        merchant_id=merchant.id,
+        amount=entity.get("amount", 0) / 100,  # paise to rupees
+        currency=entity.get("currency", "INR"),
+        razorpay_error_code=entity.get("error_code", "UNKNOWN"),
+        razorpay_error_reason=entity.get("error_description", "unknown_error"),
+        payment_method=entity.get("method", "unknown"),
+        customer_id=entity.get("customer_id") or entity.get("id", "unknown"),
+        attempt_count=1,
+    )
+    db.add(new_failure)
+    db.commit()
+    db.refresh(new_failure)
+
+    try:
+        failure_class, confidence = classify_failure(new_failure, merchant)
+        new_failure.failure_class = failure_class
+        new_failure.classifier_confidence = confidence
+        db.add(new_failure)
+        db.commit()
+    except Exception as e:
+        
+        pass
+
+    return {"status": "received", "failure_id": str(new_failure.id), "failure_class": new_failure.failure_class.value if new_failure.failure_class else None}
