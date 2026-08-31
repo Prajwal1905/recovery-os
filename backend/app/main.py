@@ -6,6 +6,9 @@ import json
 sys.path.append(os.getcwd())
 
 from fastapi import FastAPI, HTTPException, Depends, Query, Header, Request
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -28,6 +31,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 ADMIN_API_KEY = os.getenv("RECOVERY_OS_API_KEY")
@@ -187,7 +193,8 @@ def get_failure_audit(failure_id: str, db: Session = Depends(get_db), caller: Me
 
 
 @app.post("/batch/run")
-def run_batch(req: BatchRunRequest, db: Session = Depends(get_db), caller: Merchant = Depends(verify_api_key)):
+@limiter.limit("10/minute")
+def run_batch(request: Request, req: BatchRunRequest, db: Session = Depends(get_db), caller: Merchant = Depends(verify_api_key)):
     merchant_lookup = {m.id: m for m in db.query(Merchant).all()}
 
     query = db.query(Failure).filter(Failure.failure_class.isnot(None))
@@ -322,6 +329,7 @@ def get_learning_curve(merchant_id: str, db: Session = Depends(get_db)):
     }
 
 @app.post("/webhooks/razorpay")
+@limiter.limit("60/minute")
 async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
     webhook_secret = os.getenv("RAZORPAY_WEBHOOK_SECRET")
     if not webhook_secret:
