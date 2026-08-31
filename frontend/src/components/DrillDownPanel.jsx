@@ -1,19 +1,22 @@
 import { useEffect, useState } from "react";
 
 const API_BASE = "http://localhost:8000";
+const API_KEY = "recovery-os-demo-key-2026";
 
 export default function DrillDownPanel({ failureId, onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
+  const [promiseDate, setPromiseDate] = useState("");
+  const [recordingPromise, setRecordingPromise] = useState(false);
+  const [promiseMsg, setPromiseMsg] = useState(null);
 
-  useEffect(() => {
+  const loadAudit = () => {
     if (!failureId) return;
     setLoading(true);
     setError(null);
-    setData(null);
     fetch(`${API_BASE}/failures/${failureId}/audit`, {
-      headers: { "X-API-Key": "recovery-os-demo-key-2026" },
+      headers: { "X-API-Key": API_KEY },
     })
       .then((res) => {
         if (!res.ok) throw new Error("Failed to load audit trail");
@@ -22,7 +25,34 @@ export default function DrillDownPanel({ failureId, onClose }) {
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    setPromiseMsg(null);
+    setPromiseDate("");
+    loadAudit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [failureId]);
+
+  const submitPromise = async () => {
+    if (!promiseDate) return;
+    setRecordingPromise(true);
+    setPromiseMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/failures/${failureId}/promise`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
+        body: JSON.stringify({ promised_date: promiseDate }),
+      });
+      if (!res.ok) throw new Error("Failed to record promise");
+      setPromiseMsg("Promise recorded successfully.");
+      loadAudit();
+    } catch (e) {
+      setPromiseMsg(`Error: ${e.message}`);
+    } finally {
+      setRecordingPromise(false);
+    }
+  };
 
   if (!failureId) return null;
 
@@ -67,6 +97,35 @@ export default function DrillDownPanel({ failureId, onClose }) {
                 <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-indigo-700">
                   {data.current_status}
                 </span>
+              </div>
+
+              {/* Promise-to-pay panel */}
+              <div className="mb-6 rounded-xl bg-amber-50 p-4 ring-1 ring-amber-200">
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-700">
+                  Promise-to-pay tracker
+                </h3>
+                <p className="mb-3 text-xs text-amber-800">
+                  Record a customer commitment ("I'll pay by X"). The system
+                  auto-detects broken promises and escalates.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={promiseDate}
+                    onChange={(e) => setPromiseDate(e.target.value)}
+                    className="flex-1 rounded-lg border border-amber-300 px-3 py-2 text-sm"
+                  />
+                  <button
+                    onClick={submitPromise}
+                    disabled={recordingPromise || !promiseDate}
+                    className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:bg-slate-300"
+                  >
+                    {recordingPromise ? "Saving..." : "Record"}
+                  </button>
+                </div>
+                {promiseMsg && (
+                  <p className="mt-2 text-xs text-amber-800">{promiseMsg}</p>
+                )}
               </div>
 
               {data.actions_taken?.length > 0 && (
