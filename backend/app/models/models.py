@@ -85,7 +85,8 @@ class Failure(Base):
     priority_score = Column(Float, nullable=True)
 
     status = Column(Enum(FailureStatus), default=FailureStatus.pending)
-
+    promised_payment_date = Column(DateTime, nullable=True)
+    promise_status = Column(String, nullable=True) 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
