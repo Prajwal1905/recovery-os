@@ -95,9 +95,12 @@ def root():
     return {"status": "ok", "service": "Recovery OS API"}
 
 
-@app.get("/merchants", response_model=list[MerchantOut], dependencies=[Depends(verify_api_key)])
-def list_merchants(db: Session = Depends(get_db)):
-    merchants = db.query(Merchant).all()
+@app.get("/merchants", response_model=list[MerchantOut])
+def list_merchants(db: Session = Depends(get_db), caller: Merchant = Depends(verify_api_key)):
+    if caller is not None:
+        merchants = [caller]
+    else:
+        merchants = db.query(Merchant).all()
     return [
         MerchantOut(
             id=str(m.id), name=m.name, persona=m.persona.value,
@@ -106,17 +109,19 @@ def list_merchants(db: Session = Depends(get_db)):
         for m in merchants
     ]
 
-
-@app.get("/failures", response_model=list[FailureOut],dependencies=[Depends(verify_api_key)])
+@app.get("/failures", response_model=list[FailureOut])
 def list_failures(
     merchant_persona: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     limit: int = Query(100, le=1000),
     db: Session = Depends(get_db),
+    caller: Merchant = Depends(verify_api_key),
 ):
     query = db.query(Failure)
 
-    if merchant_persona:
+    if caller is not None:
+        query = query.filter(Failure.merchant_id == caller.id)
+    elif merchant_persona:
         merchant_ids = [m.id for m in db.query(Merchant).filter(Merchant.persona == merchant_persona).all()]
         query = query.filter(Failure.merchant_id.in_(merchant_ids))
 
@@ -138,12 +143,13 @@ def list_failures(
     ]
 
 
-@app.get("/failures/{failure_id}/audit", dependencies=[Depends(verify_api_key)])
-def get_failure_audit(failure_id: str, db: Session = Depends(get_db)):
+@app.get("/failures/{failure_id}/audit")
+def get_failure_audit(failure_id: str, db: Session = Depends(get_db), caller: Merchant = Depends(verify_api_key)):
     failure = db.query(Failure).filter(Failure.id == failure_id).first()
     if not failure:
         raise HTTPException(status_code=404, detail="Failure not found")
-
+    if caller is not None and failure.merchant_id != caller.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this failure")
     entries = (
         db.query(AuditLog)
         .filter(AuditLog.failure_id == failure_id)
@@ -178,15 +184,17 @@ def get_failure_audit(failure_id: str, db: Session = Depends(get_db)):
     }
 
 
-@app.post("/batch/run", dependencies=[Depends(verify_api_key)])
-def run_batch(req: BatchRunRequest, db: Session = Depends(get_db)):
+@app.post("/batch/run")
+def run_batch(req: BatchRunRequest, db: Session = Depends(get_db), caller: Merchant = Depends(verify_api_key)):
     merchant_lookup = {m.id: m for m in db.query(Merchant).all()}
 
     query = db.query(Failure).filter(Failure.failure_class.isnot(None))
-    if req.merchant_persona:
+    if caller is not None:
+        query = query.filter(Failure.merchant_id == caller.id)
+        merchant_lookup = {caller.id: caller}
+    elif req.merchant_persona:
         merchant_ids = [m.id for m in merchant_lookup.values() if m.persona.value == req.merchant_persona]
         query = query.filter(Failure.merchant_id.in_(merchant_ids))
-
     failures = query.order_by(func.random()).limit(req.batch_limit).all()
     if not failures:
         raise HTTPException(status_code=404, detail="No failures found matching the given filters")
