@@ -24,6 +24,8 @@ class FailureClass(str, enum.Enum):
     risk_decline = "risk_decline"
     mandate_failure = "mandate_failure"
     checkout_abandonment = "checkout_abandonment"
+    subscription_failure = "subscription_failure"
+    overdue_receivable = "overdue_receivable"
 
 class ActionType(str, enum.Enum):
     retry_now = "retry_now"
