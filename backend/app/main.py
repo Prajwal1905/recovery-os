@@ -40,9 +40,8 @@ def _hash_key(raw_key: str) -> str:
 
 
 def verify_api_key(x_api_key: str = Header(...), db: Session = Depends(get_db)):
-    
-    if x_api_key == ADMIN_API_KEY:
-        return None  
+    if hmac.compare_digest(x_api_key, ADMIN_API_KEY):
+        return None
 
     key_hash = _hash_key(x_api_key)
     merchant = db.query(Merchant).filter(Merchant.api_key_hash == key_hash).first()
