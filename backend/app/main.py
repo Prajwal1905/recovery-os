@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel
-
+from datetime import datetime as dt, timezone
 from app.database import SessionLocal, get_db
 from app.models.models import Failure, Merchant, AuditLog, ActionTaken, FailureStatus, BatchRunHistory
 from app.services.batch_runner import BatchRunner
@@ -85,6 +85,9 @@ class MerchantSignupRequest(BaseModel):
     name: str
     persona: str  
     initial_stopping_aggressiveness: Optional[float] = 0.5
+
+class PromiseRequest(BaseModel):
+    promised_date: str
 
 class MerchantSignupResponse(MerchantOut):
     api_key: str
@@ -410,3 +413,56 @@ def create_merchant(req: MerchantSignupRequest, db: Session = Depends(get_db)):
         stopping_aggressiveness=merchant.stopping_aggressiveness,
         api_key=raw_api_key,
     )
+
+@app.post("/failures/{failure_id}/promise")
+def record_promise(failure_id: str, req: PromiseRequest, db: Session = Depends(get_db), caller: Merchant = Depends(verify_api_key)):
+    failure = db.query(Failure).filter(Failure.id == failure_id).first()
+    if not failure:
+        raise HTTPException(status_code=404, detail="Failure not found")
+    if caller is not None and failure.merchant_id != caller.id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this failure")
+
+    try:
+        promised_date = dt.fromisoformat(req.promised_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="promised_date must be ISO format, e.g. 2026-09-05")
+
+    failure.promised_payment_date = promised_date
+    failure.promise_status = "active"
+    db.add(failure)
+
+    audit = AuditLog(
+        failure_id=failure.id,
+        event_type="promise_recorded",
+        payload={"promised_date": req.promised_date, "action": "record_promise_to_pay"},
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"failure_id": failure_id, "promise_status": "active", "promised_payment_date": req.promised_date}
+
+
+@app.get("/promises/check")
+def check_broken_promises(db: Session = Depends(get_db), caller: Merchant = Depends(verify_api_key)):
+    query = db.query(Failure).filter(Failure.promise_status == "active")
+    if caller is not None:
+        query = query.filter(Failure.merchant_id == caller.id)
+
+    active_promises = query.all()
+    now = dt.utcnow()
+    broken = []
+
+    for failure in active_promises:
+        if failure.promised_payment_date and failure.promised_payment_date < now:
+            failure.promise_status = "broken"
+            db.add(failure)
+            audit = AuditLog(
+                failure_id=failure.id,
+                event_type="promise_broken",
+                payload={"promised_date": failure.promised_payment_date.isoformat(), "escalated_to": "escalate_human"},
+            )
+            db.add(audit)
+            broken.append(str(failure.id))
+
+    db.commit()
+    return {"checked": len(active_promises), "newly_broken": len(broken), "broken_failure_ids": broken}
