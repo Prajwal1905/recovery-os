@@ -34,6 +34,7 @@ class ActionType(str, enum.Enum):
     hinglish_voice_call = "hinglish_voice_call"
     escalate_human = "escalate_human"
     stop_chasing = "stop_chasing"
+    record_promise_to_pay = "record_promise_to_pay"
 
 
 class FailureStatus(str, enum.Enum):
@@ -195,4 +196,3 @@ class BatchRunHistory(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
  
     merchant = relationship("Merchant")
- 
